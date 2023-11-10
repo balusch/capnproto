@@ -301,6 +301,14 @@ BTreeImpl::Iterator BTreeImpl::search(const SearchKey& searchKey) const {
 
   for (auto i KJ_UNUSED: zeroTo(height)) {
     auto& parent = tree[pos].parent;
+    // searchKey.search(parent): 在 parent 里面找到第一个 key[i] <= searchKey 的 i,
+    // 因为 key[i] 表示的是 children[i] 里面的最大值, 即 last row, 所以 searchKey
+    // 很可能就在 children[i] 里面
+    // TODO(balus): 直接搜索到最底部, 为什么直接返回 parent 里面的 key 呢?
+    // TODO(balus): 上一个问题我猜想是因为 SearchKey.search 里面只使用了 callback 里面的 isBefore,
+    //              而 matches 则由外面的 TreeIndex 驱动层调用, 所以在这里无法获取到 == 关系, 而只能
+    //              获取到 <=/>= 关系, 而且 parent 里面一个 key 实际对应的是 children 里面的多个 key,
+    //              所以即使找到了这样一个 key, 也不能直接返回给驱动去 matches 比较, 而是应该到 leaf
     pos = parent.children[searchKey.search(parent)];
   }
 
@@ -363,7 +371,9 @@ BTreeImpl::Iterator BTreeImpl::insert(const SearchKey& searchKey) {
     } else {
       growTree();
 
+      // TODO(balus): 看起来并不会存在 freelistHead == 0 的情况 (最少也是 1)?
       if (freelistHead == 0) {
+        // TODO(balus): 这里只是单纯的把第 0 个 slot 给用掉, alloc 的结果并没有赋值给其他变量
         // We have no root yet. Allocate one.
         KJ_ASSERT(alloc<Parent>().index == 0);
       }
@@ -404,9 +414,17 @@ Node& BTreeImpl::insertHelper(const SearchKey& searchKey,
       auto n1 = alloc<Node>();
       auto n2 = alloc<Node>();
 
+      // TODO(balus):
+      //    * 把 node (此时是一个 Leaf) 的右半边拷贝到 n2 去
+      //    * 串联 node 和 n2 (n2 是 node 的 next)
+      //    * pivot (即 rows[6]) 此时还保存在 node 里面 (这一点和 Parent 的 split 不同);
+      //      所以 pivot 其实会在 parent 和 child 里面各自存储一份
+      //      需要注意的是, parent 里面的 keys 不作为 row 值, 比如后续删除的时候只会删除 Leaf 里面的值, 而不会删除 Parent 里面的???
       uint pivot = split(n2.node, n2.index, node, pos);
+      // TODO(balus): 把 node 的拷贝给 n2 (包括其 prev/next 关系)
       move(n1.node, n1.index, node);
 
+      // TODO(balus): 把 n1 和 n2 作为 root 的两个 children
       // Rewrite root to have the two children.
       tree[0].parent.initRoot(pivot, n1.index, n2.index);
 
@@ -422,6 +440,7 @@ Node& BTreeImpl::insertHelper(const SearchKey& searchKey,
         return n1.node;
       }
     } else {
+      // TODO(balus): split 之后 n 包含 node 的右半部分
       // This is a non-root parent node. We need to split it into two and insert the new node
       // into the grandparent.
       auto n = alloc<Node>();
@@ -546,10 +565,15 @@ Node& BTreeImpl::eraseHelper(
         // Right sibling is half full, too. Merge.
         KJ_ASSERT(sib.isHalfFull());
         merge(node, pos, *parent->keys[indexInParent], sib);
+        // TODO(balus): eraseAfter(pos) 并不是删除 pos+1 处的元素, 而是删除 pos 处的元素 (后面的元素前移), 名字有点绕...
         parent->eraseAfter(indexInParent);
         free(sibPos);
         if (fixup == &parent->keys[indexInParent]) fixup = nullptr;
 
+        // TODO(balus): 前面 eraseAfter 的时候可能就把 0 删除了;
+        // TODO(balus): non-root 节点至少都是 half full 的 (否则会被 merge),
+        //              才删除一个 slot 就导致全部空了, 这种情况只能在 root 上发生, 这种情况就没有必要保存这个 leaf 了
+        //              直接把 tree[0] 恢复成 leaf 就行
         if (parent->keys[0] == nullptr) {
           // Oh hah, the parent has no keys left. It must be the root. We can eliminate it.
           KJ_DASSERT(parent == &tree->parent);
