@@ -85,3 +85,9 @@
 
 # bazel output
 bazel-*
+
+# IDE/Editor
+.idea
+.vscode
+cmake-build-*
+build
