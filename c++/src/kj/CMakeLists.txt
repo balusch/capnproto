@@ -315,3 +315,7 @@ if(BUILD_TESTING)
     add_test(NAME kj-heavy-tests-run COMMAND kj-heavy-tests)
   endif()  # NOT CAPNP_LITE
 endif()  # BUILD_TESTING
+
+if(BUILD_DEMOS)
+    add_subdirectory(demos)
+endif()
